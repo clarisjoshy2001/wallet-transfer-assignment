@@ -8,10 +8,18 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	_ "wallet-transfer/docs"
+
+	walletHandler "wallet-transfer/internal/wallet/handler"
+	walletRepo "wallet-transfer/internal/wallet/repository"
+	walletService "wallet-transfer/internal/wallet/service"
 	"wallet-transfer/pkg/config"
+	"wallet-transfer/pkg/database"
 	"wallet-transfer/pkg/logger"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/recover"
 	fiberSwagger "github.com/swaggo/fiber-swagger"
 )
 
@@ -30,6 +38,21 @@ func main() {
 	// ── Init logger ────────────────────────────────────────────────────────────
 	logger.Init(config.Instance.LogLevel)
 
+	//Connect to database
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	if err := database.Connect(ctx, config.Instance.DBURL); err != nil {
+		log.Fatalf("failed to connect to database: %v", err)
+	}
+	defer database.Close()
+
+	pool := database.GetPool()
+
+	wRepo := walletRepo.NewWalletRepository()
+	wSvc := walletService.NewWalletService(pool, wRepo)
+	wHandler := walletHandler.NewWalletHandler(wSvc)
+
 	// ── Setup Fiber ────────────────────────────────────────────────────────────
 	app := fiber.New(fiber.Config{
 		ErrorHandler: func(c *fiber.Ctx, err error) error {
@@ -41,6 +64,8 @@ func main() {
 		},
 	})
 
+	app.Use(recover.New())
+
 	// ── Swagger ────────────────────────────────────────────────────────────────
 	app.Get("/swagger/*", fiberSwagger.WrapHandler)
 
@@ -49,6 +74,11 @@ func main() {
 		return c.JSON(fiber.Map{"status": "ok", "time": time.Now()})
 	})
 
+	// ── API routes ─────────────────────────────────────────────────────────────
+	api := app.Group("/api/v1")
+	walletHandler.RegisterRoutes(api, wHandler)
+
+	// ── Graceful shutdown ──────────────────────────────────────────────────────
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 
