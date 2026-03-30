@@ -11,6 +11,9 @@ import (
 
 	_ "wallet-transfer/docs"
 
+	"wallet-transfer/internal/transfer/handler"
+	transferRepo "wallet-transfer/internal/transfer/repository"
+	transferService "wallet-transfer/internal/transfer/service"
 	walletHandler "wallet-transfer/internal/wallet/handler"
 	walletRepo "wallet-transfer/internal/wallet/repository"
 	walletService "wallet-transfer/internal/wallet/service"
@@ -53,6 +56,10 @@ func main() {
 	wSvc := walletService.NewWalletService(pool, wRepo)
 	wHandler := walletHandler.NewWalletHandler(wSvc)
 
+	tRepo := transferRepo.NewTransferRepository()
+	tSvc := transferService.NewTransferService(pool, tRepo, wRepo)
+	tHandler := handler.NewTransferHandler(tSvc)
+
 	// ── Setup Fiber ────────────────────────────────────────────────────────────
 	app := fiber.New(fiber.Config{
 		ErrorHandler: func(c *fiber.Ctx, err error) error {
@@ -77,6 +84,7 @@ func main() {
 	// ── API routes ─────────────────────────────────────────────────────────────
 	api := app.Group("/api/v1")
 	walletHandler.RegisterRoutes(api, wHandler)
+	handler.RegisterRoutes(api, tHandler)
 
 	// ── Graceful shutdown ──────────────────────────────────────────────────────
 	quit := make(chan os.Signal, 1)
